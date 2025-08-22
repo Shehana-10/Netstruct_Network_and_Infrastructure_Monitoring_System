@@ -257,7 +257,14 @@ class _NotificationMenuContentState extends State<NotificationMenuContent> {
                               ),
                               const SizedBox(width: 10),
                               Text(
-                                _formatTimeAgo(notification.timestamp),
+                                DateFormat('MMM d, yyyy - HH:mm').format(
+                                  DateTime.fromMillisecondsSinceEpoch(
+                                    notification
+                                        .timestamp
+                                        .millisecondsSinceEpoch,
+                                    isUtc: true, // <-- Keep UTC (DB time)
+                                  ),
+                                ),
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: secondaryColor,
@@ -298,17 +305,5 @@ class _NotificationMenuContentState extends State<NotificationMenuContent> {
     if (lowerType.contains('warning')) return Colors.orange;
     if (lowerType.contains('critical')) return Colors.red;
     return Colors.blue;
-  }
-
-  String _formatTimeAgo(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-
-    if (difference.inSeconds < 60) return '${difference.inSeconds}s ago';
-    if (difference.inMinutes < 60) return '${difference.inMinutes}m ago';
-    if (difference.inHours < 24) return '${difference.inHours}h ago';
-    if (difference.inDays < 7) return '${difference.inDays}d ago';
-
-    return DateFormat('MMM d, HH:mm').format(date);
   }
 }
