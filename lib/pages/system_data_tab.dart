@@ -69,21 +69,37 @@ class _SystemDataTabState extends State<SystemDataTab> {
                   lineColor: Colors.red,
                   bgColor: bgColor,
                   textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedSensor: selectedSensor,
                 ),
                 CpuMemoryLineChart(
                   title: 'Memory Usage',
                   lineColor: Colors.blue,
                   bgColor: bgColor,
                   textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedSensor: selectedSensor,
                 ),
                 CpuMemoryLineChart(
                   title: 'Disk Usage',
                   lineColor: Colors.green,
                   bgColor: bgColor,
                   textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedSensor: selectedSensor,
                 ),
-                NotificationPieChart(bgColor: bgColor, textColor: textColor),
-                NetworkTrafficChart(bgColor: bgColor, textColor: textColor),
+                NotificationPieChart(
+                  bgColor: bgColor,
+                  textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedSensor: selectedSensor,
+                ),
+                NetworkTrafficChart(
+                  bgColor: bgColor,
+                  textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedSensor: selectedSensor,
+                ),
               ],
             ),
           ),
@@ -96,11 +112,15 @@ class _SystemDataTabState extends State<SystemDataTab> {
 class NetworkTrafficChart extends StatefulWidget {
   final Color bgColor;
   final Color textColor;
+  final String selectedTimeRange;
+  final String selectedSensor;
 
   const NetworkTrafficChart({
     super.key,
     required this.bgColor,
     required this.textColor,
+    required this.selectedTimeRange,
+    required this.selectedSensor,
   });
 
   @override
@@ -110,6 +130,7 @@ class NetworkTrafficChart extends StatefulWidget {
 class _NetworkTrafficChartState extends State<NetworkTrafficChart> {
   List<FlSpot> downloadSpots = [];
   List<FlSpot> uploadSpots = [];
+  Map<double, String> xLabels = {};
   bool isLoading = true;
   String deviceStatus = 'offline';
   DateTime? lastUpdated;
@@ -120,6 +141,17 @@ class _NetworkTrafficChartState extends State<NetworkTrafficChart> {
     super.initState();
     listenToDeviceStatus();
     fetchNetworkData();
+  }
+
+  @override
+  void didUpdateWidget(covariant NetworkTrafficChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // If filter parameters changed, refresh data
+    if (oldWidget.selectedTimeRange != widget.selectedTimeRange ||
+        oldWidget.selectedSensor != widget.selectedSensor) {
+      fetchNetworkData();
+    }
   }
 
   void listenToDeviceStatus() {
@@ -154,11 +186,47 @@ class _NetworkTrafficChartState extends State<NetworkTrafficChart> {
     setState(() {
       downloadSpots = [];
       uploadSpots = [];
+      xLabels = {};
       lastUpdated = null;
     });
   }
 
+  // Helper method to calculate time range for filtering
+  DateTime _getStartTimeForRange(String timeRange) {
+    final now = DateTime.now();
+
+    switch (timeRange) {
+      case 'Last hour':
+        return now.subtract(const Duration(hours: 1));
+      case 'Last 6 hours':
+        return now.subtract(const Duration(hours: 6));
+      case 'Last 12 hours':
+        return now.subtract(const Duration(hours: 12));
+      case 'Last 24 hours':
+        return now.subtract(const Duration(hours: 24));
+      case 'Last 7 days':
+        return now.subtract(const Duration(days: 7));
+      case 'Last 30 days':
+        return now.subtract(const Duration(days: 30));
+      default:
+        return now.subtract(const Duration(hours: 24));
+    }
+  }
+
   Future<void> fetchNetworkData() async {
+    // Skip if sensor is not selected and not "All"
+    if (widget.selectedSensor != 'All' &&
+        widget.selectedSensor != 'Network Traffic') {
+      setState(() {
+        isLoading = false;
+        downloadSpots = [];
+        uploadSpots = [];
+        xLabels = {};
+        lastUpdated = DateTime.now();
+      });
+      return;
+    }
+
     if (deviceStatus != 'online') return;
 
     setState(() {
@@ -168,26 +236,40 @@ class _NetworkTrafficChartState extends State<NetworkTrafficChart> {
 
     try {
       final supabase = Supabase.instance.client;
-      final response = await supabase
+
+      // Calculate time range
+      final startTime = _getStartTimeForRange(widget.selectedTimeRange);
+      final startTimeStr = startTime.toIso8601String();
+
+      // Build query based on filters
+      var query = supabase
           .from('infrastructure')
           .select('timestamp, download_kbps, upload_kbps')
-          .order('timestamp', ascending: false)
-          .limit(50);
+          .gte('timestamp', startTimeStr)
+          .order('timestamp', ascending: true);
 
-      final data = response.reversed.toList();
+      final response = await query;
+
+      final data = response;
       final List<FlSpot> dl = [];
       final List<FlSpot> ul = [];
+      final Map<double, String> labels = {};
 
       for (int i = 0; i < data.length; i++) {
         final dVal = _parseDouble(data[i]['download_kbps']) ?? 0;
         final uVal = _parseDouble(data[i]['upload_kbps']) ?? 0;
         dl.add(FlSpot(i.toDouble(), dVal));
         ul.add(FlSpot(i.toDouble(), uVal));
+
+        final timestamp = DateTime.parse(data[i]['timestamp']);
+        final timeLabel = DateFormat('HH:mm').format(timestamp);
+        labels[i.toDouble()] = timeLabel;
       }
 
       setState(() {
         downloadSpots = dl;
         uploadSpots = ul;
+        xLabels = labels;
         isLoading = false;
         lastUpdated = DateTime.now();
       });
@@ -314,7 +396,37 @@ class _NetworkTrafficChartState extends State<NetworkTrafficChart> {
                       LineChartData(
                         gridData: FlGridData(show: false),
                         borderData: FlBorderData(show: false),
-                        titlesData: FlTitlesData(show: false),
+                        titlesData: FlTitlesData(
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 36,
+                              interval: calculateInterval(downloadSpots),
+                              getTitlesWidget: (value, _) {
+                                final label = xLabels[value];
+                                return Transform.rotate(
+                                  angle: -1.57,
+                                  child: Text(
+                                    label ?? '',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: widget.textColor.withOpacity(0.6),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
+                          topTitles: AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
+                          rightTitles: AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
+                        ),
                         lineBarsData: [
                           LineChartBarData(
                             spots: downloadSpots,
@@ -360,6 +472,14 @@ class _NetworkTrafficChartState extends State<NetworkTrafficChart> {
       ),
     );
   }
+
+  double calculateInterval(List<FlSpot> spots) {
+    if (spots.length < 2) return 1;
+    final first = spots.first.x;
+    final last = spots.last.x;
+    final total = last - first;
+    return total / 4;
+  }
 }
 
 class CpuMemoryLineChart extends StatefulWidget {
@@ -367,6 +487,8 @@ class CpuMemoryLineChart extends StatefulWidget {
   final Color lineColor;
   final Color bgColor;
   final Color textColor;
+  final String selectedTimeRange;
+  final String selectedSensor;
 
   const CpuMemoryLineChart({
     super.key,
@@ -374,6 +496,8 @@ class CpuMemoryLineChart extends StatefulWidget {
     required this.lineColor,
     required this.bgColor,
     required this.textColor,
+    required this.selectedTimeRange,
+    required this.selectedSensor,
   });
 
   @override
@@ -382,6 +506,7 @@ class CpuMemoryLineChart extends StatefulWidget {
 
 class _CpuMemoryLineChartState extends State<CpuMemoryLineChart> {
   List<FlSpot> dataPoints = [];
+  Map<double, String> xLabels = {};
   bool isLoading = true;
   String deviceStatus = 'offline';
   DateTime? lastUpdated;
@@ -392,6 +517,17 @@ class _CpuMemoryLineChartState extends State<CpuMemoryLineChart> {
     super.initState();
     listenToDeviceStatus();
     fetchChartData();
+  }
+
+  @override
+  void didUpdateWidget(covariant CpuMemoryLineChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // If filter parameters changed, refresh data
+    if (oldWidget.selectedTimeRange != widget.selectedTimeRange ||
+        oldWidget.selectedSensor != widget.selectedSensor) {
+      fetchChartData();
+    }
   }
 
   void listenToDeviceStatus() {
@@ -425,11 +561,47 @@ class _CpuMemoryLineChartState extends State<CpuMemoryLineChart> {
   void _clearDataIfOffline() {
     setState(() {
       dataPoints = [];
+      xLabels = {};
       lastUpdated = null;
     });
   }
 
+  // Helper method to calculate time range for filtering
+  DateTime _getStartTimeForRange(String timeRange) {
+    final now = DateTime.now();
+
+    switch (timeRange) {
+      case 'Last hour':
+        return now.subtract(const Duration(hours: 1));
+      case 'Last 6 hours':
+        return now.subtract(const Duration(hours: 6));
+      case 'Last 12 hours':
+        return now.subtract(const Duration(hours: 12));
+      case 'Last 24 hours':
+        return now.subtract(const Duration(hours: 24));
+      case 'Last 7 days':
+        return now.subtract(const Duration(days: 7));
+      case 'Last 30 days':
+        return now.subtract(const Duration(days: 30));
+      default:
+        return now.subtract(const Duration(hours: 24));
+    }
+  }
+
   Future<void> fetchChartData() async {
+    // Skip if sensor is not selected and not "All"
+    final title = widget.title.toLowerCase();
+    if (widget.selectedSensor != 'All' &&
+        widget.selectedSensor.toLowerCase() != title) {
+      setState(() {
+        isLoading = false;
+        dataPoints = [];
+        xLabels = {};
+        lastUpdated = DateTime.now();
+      });
+      return;
+    }
+
     if (deviceStatus != 'online') return;
 
     setState(() {
@@ -438,7 +610,6 @@ class _CpuMemoryLineChartState extends State<CpuMemoryLineChart> {
     });
 
     final supabase = Supabase.instance.client;
-    final title = widget.title.toLowerCase();
 
     String? column;
     if (title.contains('cpu')) {
@@ -452,16 +623,24 @@ class _CpuMemoryLineChartState extends State<CpuMemoryLineChart> {
     if (column == null) return;
 
     try {
-      final response = await supabase
+      // Calculate time range
+      final startTime = _getStartTimeForRange(widget.selectedTimeRange);
+      final startTimeStr = startTime.toIso8601String();
+
+      // Build query based on filters
+      var query = supabase
           .from('infrastructure')
           .select('timestamp, $column')
-          .order('timestamp', ascending: false)
-          .limit(50);
+          .gte('timestamp', startTimeStr)
+          .order('timestamp', ascending: true);
+
+      final response = await query;
 
       final List data = response;
       final List<FlSpot> points = [];
+      final Map<double, String> labels = {};
 
-      for (int i = data.length - 1; i >= 0; i--) {
+      for (int i = 0; i < data.length; i++) {
         final raw = data[i][column];
         if (raw == null) continue;
 
@@ -469,12 +648,17 @@ class _CpuMemoryLineChartState extends State<CpuMemoryLineChart> {
         final value = match != null ? double.tryParse(match.group(0)!) : null;
 
         if (value != null) {
-          points.add(FlSpot((data.length - 1 - i).toDouble(), value));
+          points.add(FlSpot(i.toDouble(), value));
+
+          final timestamp = DateTime.parse(data[i]['timestamp']);
+          final timeLabel = DateFormat('HH:mm').format(timestamp);
+          labels[i.toDouble()] = timeLabel;
         }
       }
 
       setState(() {
         dataPoints = points;
+        xLabels = labels;
         isLoading = false;
         lastUpdated = DateTime.now();
       });
@@ -585,10 +769,27 @@ class _CpuMemoryLineChartState extends State<CpuMemoryLineChart> {
                         gridData: FlGridData(show: false),
                         borderData: FlBorderData(show: false),
                         titlesData: FlTitlesData(
-                          leftTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false),
-                          ),
                           bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 36,
+                              interval: calculateInterval(dataPoints),
+                              getTitlesWidget: (value, _) {
+                                final label = xLabels[value];
+                                return Transform.rotate(
+                                  angle: -1.57,
+                                  child: Text(
+                                    label ?? '',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: widget.textColor.withOpacity(0.6),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          leftTitles: AxisTitles(
                             sideTitles: SideTitles(showTitles: false),
                           ),
                           topTitles: AxisTitles(
@@ -625,16 +826,28 @@ class _CpuMemoryLineChartState extends State<CpuMemoryLineChart> {
       ),
     );
   }
+
+  double calculateInterval(List<FlSpot> spots) {
+    if (spots.length < 2) return 1;
+    final first = spots.first.x;
+    final last = spots.last.x;
+    final total = last - first;
+    return total / 4;
+  }
 }
 
 class NotificationPieChart extends StatefulWidget {
   final Color bgColor;
   final Color textColor;
+  final String selectedTimeRange;
+  final String selectedSensor;
 
   const NotificationPieChart({
     super.key,
     required this.bgColor,
     required this.textColor,
+    required this.selectedTimeRange,
+    required this.selectedSensor,
   });
 
   @override
@@ -653,6 +866,17 @@ class _NotificationPieChartState extends State<NotificationPieChart> {
     super.initState();
     listenToDeviceStatus();
     fetchNotificationData();
+  }
+
+  @override
+  void didUpdateWidget(covariant NotificationPieChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // If filter parameters changed, refresh data
+    if (oldWidget.selectedTimeRange != widget.selectedTimeRange ||
+        oldWidget.selectedSensor != widget.selectedSensor) {
+      fetchNotificationData();
+    }
   }
 
   void listenToDeviceStatus() {
@@ -690,7 +914,39 @@ class _NotificationPieChartState extends State<NotificationPieChart> {
     });
   }
 
+  // Helper method to calculate time range for filtering
+  DateTime _getStartTimeForRange(String timeRange) {
+    final now = DateTime.now();
+
+    switch (timeRange) {
+      case 'Last hour':
+        return now.subtract(const Duration(hours: 1));
+      case 'Last 6 hours':
+        return now.subtract(const Duration(hours: 6));
+      case 'Last 12 hours':
+        return now.subtract(const Duration(hours: 12));
+      case 'Last 24 hours':
+        return now.subtract(const Duration(hours: 24));
+      case 'Last 7 days':
+        return now.subtract(const Duration(days: 7));
+      case 'Last 30 days':
+        return now.subtract(const Duration(days: 30));
+      default:
+        return now.subtract(const Duration(hours: 24));
+    }
+  }
+
   Future<void> fetchNotificationData() async {
+    // Skip if sensor is not selected and not "All"
+    if (widget.selectedSensor != 'All') {
+      setState(() {
+        isLoading = false;
+        sections = [];
+        lastUpdated = DateTime.now();
+      });
+      return;
+    }
+
     if (deviceStatus != 'online') return;
 
     setState(() {
@@ -699,11 +955,15 @@ class _NotificationPieChartState extends State<NotificationPieChart> {
     });
 
     try {
+      // Calculate time range
+      final startTime = _getStartTimeForRange(widget.selectedTimeRange);
+      final startTimeStr = startTime.toIso8601String();
+
       // TODO: Replace dummy data with actual Supabase query
+      // This should query your notifications table with time filter
       List<Map<String, dynamic>> data = [
         {'type': 'Error', 'count': 40},
         {'type': 'Warning', 'count': 30},
-
         {'type': 'Critical', 'count': 10},
       ];
 

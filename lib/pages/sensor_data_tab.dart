@@ -1,7 +1,6 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:fyp/widgets/filter_widget.dart';
-
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
@@ -73,6 +72,9 @@ class _SensorDataTabState extends State<SensorDataTab> {
                   unit: '°C',
                   bgColor: bgColor,
                   textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedDevice: selectedDevice,
+                  selectedSensor: selectedSensor,
                 ),
                 SensorLineChart(
                   title: 'Humidity',
@@ -80,6 +82,9 @@ class _SensorDataTabState extends State<SensorDataTab> {
                   unit: '%',
                   bgColor: bgColor,
                   textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedDevice: selectedDevice,
+                  selectedSensor: selectedSensor,
                 ),
                 SensorLineChart(
                   title: 'Gas Level',
@@ -87,6 +92,9 @@ class _SensorDataTabState extends State<SensorDataTab> {
                   unit: 'ppm',
                   bgColor: bgColor,
                   textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedDevice: selectedDevice,
+                  selectedSensor: selectedSensor,
                 ),
                 SensorLineChart(
                   title: 'Sound Level',
@@ -94,6 +102,9 @@ class _SensorDataTabState extends State<SensorDataTab> {
                   unit: 'dB',
                   bgColor: bgColor,
                   textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedDevice: selectedDevice,
+                  selectedSensor: selectedSensor,
                 ),
                 SensorBarChart(
                   title: 'Flame Detection',
@@ -101,6 +112,9 @@ class _SensorDataTabState extends State<SensorDataTab> {
                   unit: '',
                   bgColor: bgColor,
                   textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedDevice: selectedDevice,
+                  selectedSensor: selectedSensor,
                 ),
                 SensorBarChart(
                   title: 'Vibration',
@@ -108,6 +122,9 @@ class _SensorDataTabState extends State<SensorDataTab> {
                   unit: '',
                   bgColor: bgColor,
                   textColor: textColor,
+                  selectedTimeRange: selectedTimeRange,
+                  selectedDevice: selectedDevice,
+                  selectedSensor: selectedSensor,
                 ),
               ],
             ),
@@ -124,6 +141,9 @@ class SensorLineChart extends StatefulWidget {
   final String unit;
   final Color bgColor;
   final Color textColor;
+  final String selectedTimeRange;
+  final String selectedDevice;
+  final String selectedSensor;
 
   const SensorLineChart({
     super.key,
@@ -132,6 +152,9 @@ class SensorLineChart extends StatefulWidget {
     required this.unit,
     required this.bgColor,
     required this.textColor,
+    required this.selectedTimeRange,
+    required this.selectedDevice,
+    required this.selectedSensor,
   });
 
   @override
@@ -151,6 +174,18 @@ class _SensorLineChartState extends State<SensorLineChart> {
     super.initState();
     listenToDeviceStatus();
     fetchChartData();
+  }
+
+  @override
+  void didUpdateWidget(covariant SensorLineChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // If filter parameters changed, refresh data
+    if (oldWidget.selectedTimeRange != widget.selectedTimeRange ||
+        oldWidget.selectedDevice != widget.selectedDevice ||
+        oldWidget.selectedSensor != widget.selectedSensor) {
+      fetchChartData();
+    }
   }
 
   void listenToDeviceStatus() {
@@ -189,7 +224,41 @@ class _SensorLineChartState extends State<SensorLineChart> {
     });
   }
 
+  // Helper method to calculate time range for filtering
+  DateTime _getStartTimeForRange(String timeRange) {
+    final now = DateTime.now();
+
+    switch (timeRange) {
+      case 'Last hour':
+        return now.subtract(const Duration(hours: 1));
+      case 'Last 6 hours':
+        return now.subtract(const Duration(hours: 6));
+      case 'Last 12 hours':
+        return now.subtract(const Duration(hours: 12));
+      case 'Last 24 hours':
+        return now.subtract(const Duration(hours: 24));
+      case 'Last 7 days':
+        return now.subtract(const Duration(days: 7));
+      case 'Last 30 days':
+        return now.subtract(const Duration(days: 30));
+      default:
+        return now.subtract(const Duration(hours: 24));
+    }
+  }
+
   Future<void> fetchChartData() async {
+    // Skip if sensor is not selected and not "All"
+    if (widget.selectedSensor != 'All' &&
+        widget.selectedSensor.toLowerCase() != widget.title.toLowerCase()) {
+      setState(() {
+        isLoading = false;
+        dataPoints = [];
+        xLabels = {};
+        lastUpdated = DateTime.now();
+      });
+      return;
+    }
+
     if (deviceStatus != 'online') return;
 
     setState(() {
@@ -199,13 +268,26 @@ class _SensorLineChartState extends State<SensorLineChart> {
 
     try {
       final supabase = Supabase.instance.client;
-      final response = await supabase
+
+      // Calculate time range
+      final startTime = _getStartTimeForRange(widget.selectedTimeRange);
+      final startTimeStr = startTime.toIso8601String();
+
+      // Build query based on filters
+      var query = supabase
           .from('sensor_data')
           .select('timestamp, ${widget.title.toLowerCase().split(' ')[0]}')
-          .order('timestamp', ascending: false)
-          .limit(50);
+          .gte('timestamp', startTimeStr)
+          .order('timestamp', ascending: true);
 
-      final List data = response.reversed.toList();
+      // Add device filter if needed (assuming device_id column exists)
+      // if (widget.selectedDevice != 'All') {
+      //   query = query.eq('device_id', widget.selectedDevice);
+      // }
+
+      final response = await query;
+
+      final List data = response;
       final List<FlSpot> points = [];
       final Map<double, String> labels = {};
 
@@ -408,6 +490,9 @@ class SensorBarChart extends StatefulWidget {
   final String unit;
   final Color bgColor;
   final Color textColor;
+  final String selectedTimeRange;
+  final String selectedDevice;
+  final String selectedSensor;
 
   const SensorBarChart({
     super.key,
@@ -416,6 +501,9 @@ class SensorBarChart extends StatefulWidget {
     required this.unit,
     required this.bgColor,
     required this.textColor,
+    required this.selectedTimeRange,
+    required this.selectedDevice,
+    required this.selectedSensor,
   });
 
   @override
@@ -435,6 +523,18 @@ class _SensorBarChartState extends State<SensorBarChart> {
     super.initState();
     listenToDeviceStatus();
     fetchChartData();
+  }
+
+  @override
+  void didUpdateWidget(covariant SensorBarChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // If filter parameters changed, refresh data
+    if (oldWidget.selectedTimeRange != widget.selectedTimeRange ||
+        oldWidget.selectedDevice != widget.selectedDevice ||
+        oldWidget.selectedSensor != widget.selectedSensor) {
+      fetchChartData();
+    }
   }
 
   void listenToDeviceStatus() {
@@ -473,7 +573,41 @@ class _SensorBarChartState extends State<SensorBarChart> {
     });
   }
 
+  // Helper method to calculate time range for filtering
+  DateTime _getStartTimeForRange(String timeRange) {
+    final now = DateTime.now();
+
+    switch (timeRange) {
+      case 'Last hour':
+        return now.subtract(const Duration(hours: 1));
+      case 'Last 6 hours':
+        return now.subtract(const Duration(hours: 6));
+      case 'Last 12 hours':
+        return now.subtract(const Duration(hours: 12));
+      case 'Last 24 hours':
+        return now.subtract(const Duration(hours: 24));
+      case 'Last 7 days':
+        return now.subtract(const Duration(days: 7));
+      case 'Last 30 days':
+        return now.subtract(const Duration(days: 30));
+      default:
+        return now.subtract(const Duration(hours: 24));
+    }
+  }
+
   Future<void> fetchChartData() async {
+    // Skip if sensor is not selected and not "All"
+    if (widget.selectedSensor != 'All' &&
+        widget.selectedSensor.toLowerCase() != widget.title.toLowerCase()) {
+      setState(() {
+        isLoading = false;
+        dataPoints = [];
+        xLabels = {};
+        lastUpdated = DateTime.now();
+      });
+      return;
+    }
+
     if (deviceStatus != 'online') return;
 
     setState(() {
@@ -483,13 +617,26 @@ class _SensorBarChartState extends State<SensorBarChart> {
 
     try {
       final supabase = Supabase.instance.client;
-      final response = await supabase
+
+      // Calculate time range
+      final startTime = _getStartTimeForRange(widget.selectedTimeRange);
+      final startTimeStr = startTime.toIso8601String();
+
+      // Build query based on filters
+      var query = supabase
           .from('sensor_data')
           .select('timestamp, ${widget.title.toLowerCase().split(' ')[0]}')
-          .order('timestamp', ascending: false)
-          .limit(50);
+          .gte('timestamp', startTimeStr)
+          .order('timestamp', ascending: true);
 
-      final List data = response.reversed.toList();
+      // Add device filter if needed (assuming device_id column exists)
+      // if (widget.selectedDevice != 'All') {
+      //   query = query.eq('device_id', widget.selectedDevice);
+      // }
+
+      final response = await query;
+
+      final List data = response;
       final List<FlSpot> points = [];
       final Map<double, String> labels = {};
 
