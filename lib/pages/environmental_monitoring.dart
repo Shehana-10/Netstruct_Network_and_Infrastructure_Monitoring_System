@@ -89,11 +89,11 @@ class _EnvironmentalMonitoringPageState
                   lastUpdated = DateTime.now();
                 });
 
-                if (temperature > 30 && !temperatureAlertSent) {
+                if (temperature > 35 && !temperatureAlertSent) {
                   widget.onTemperatureAlert(temperature);
                   sendNotificationToSupabase(temperature);
                   temperatureAlertSent = true;
-                } else if (temperature <= 30 && temperatureAlertSent) {
+                } else if (temperature <= 35 && temperatureAlertSent) {
                   temperatureAlertSent = false;
                 }
               } else {
@@ -369,7 +369,7 @@ class _EnvironmentalMonitoringPageState
                                 elevation: 3,
                                 child: Padding(
                                   padding: const EdgeInsets.all(8),
-                                  child: buildGauge('Humidity', humidity, 100, [
+                                  child: buildGauge('Humidity', humidity, 90, [
                                     GaugeRange(
                                       startValue: 0,
                                       endValue: 30,
@@ -446,7 +446,7 @@ class _EnvironmentalMonitoringPageState
                               ignoring: deviceStatus != 'online',
                               child: buildStatusCard(
                                 'Sound',
-                                sound > 0,
+                                sound > 1000,
                                 Icons.volume_up,
                                 Colors.purple,
                               ),
