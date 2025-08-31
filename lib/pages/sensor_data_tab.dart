@@ -42,11 +42,12 @@ class _SensorDataTabState extends State<SensorDataTab> {
             onRefresh: () => setState(() {}),
             isDeviceOnline: true,
             selectedTimeRange: selectedTimeRange,
-            selectedDevice: selectedDevice,
+            showDeviceDropdown: false,
+            selectedDevice: "",
             selectedSensor: selectedSensor,
             onTimeRangeChanged:
                 (val) => setState(() => selectedTimeRange = val!),
-            onDeviceChanged: (val) => setState(() => selectedDevice = val!),
+            onDeviceChanged: (_) {},
             onSensorChanged: (val) => setState(() => selectedSensor = val!),
             sensorOptions: const [
               'All',
